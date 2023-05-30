@@ -1,0 +1,47 @@
+import sys
+from awsglue.transforms import *
+from awsglue.utils import getResolvedOptions
+from pyspark.context import SparkContext
+from awsglue.context import GlueContext
+from awsglue.job import Job
+from pyspark.sql import SparkSession
+
+# Create a Spark session
+spark = SparkSession.builder.appName("QueryConversion").getOrCreate()
+
+# Read the CSV files with header and inferSchema options
+first_health_camp_attended = spark.read.csv("s3://healthfilesdata/First_Health_Camp_Attended.csv", header=True)
+train = spark.read.csv("s3://healthfilesdata/Train.csv", header=True)
+third_health_camp_attended = spark.read.csv("s3://healthfilesdata/Third_Health_Camp_Attended.csv", header=True)
+patient_profile = spark.read.csv("s3://healthfilesdata/Patient_Profile.csv", header=True)
+test = spark.read.csv("s3://healthfilesdata/test.csv", header=True)
+
+# Perform the joins
+joined_data = (
+    first_health_camp_attended.join(train, first_health_camp_attended.Patient_ID == train.Patient_ID)
+    .join(third_health_camp_attended, third_health_camp_attended.Patient_ID == first_health_camp_attended.Patient_ID)
+    .join(patient_profile, patient_profile.Patient_ID == third_health_camp_attended.Patient_ID)
+    .join(test, test.Patient_ID == patient_profile.Patient_ID)
+)
+
+# Select the required columns with explicit aliasing
+result = joined_data.select(
+    train["Patient_ID"],
+    first_health_camp_attended["Donation"],
+    first_health_camp_attended["Health_Score"],
+    third_health_camp_attended["Number_of_stall_visited"],
+    third_health_camp_attended["Last_Stall_Visited_Number"],
+    patient_profile["Age"],
+    patient_profile["Education_Score"],
+    patient_profile["Employer_Category"],
+    test["Registration_Date"]
+)
+
+# Show the result
+output_path = "s3://datavira/uploading/"
+result.write.csv(output_path, header=True, mode="overwrite")
+
+# Stop the Spark session
+spark.stop()
+
+
